@@ -1,0 +1,9 @@
+<launch>
+    <param name="name" value="yoon"/>
+    <node pkg="iros_image_attack_tello" type="node_tello.py" name="tello_node" output="screen">
+    </node>
+    <node pkg="iros_image_attack_tello" type="node_yolo.py" name="yolo_node" output="screen">
+    </node>
+    <node pkg="iros_image_attack_tello" type="node_controller.py" name="controller_node" output="screen">
+    </node>
+</launch>

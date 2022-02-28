@@ -1,0 +1,13 @@
+<launch>
+    <param name="name" value="yoon_temp"/>
+    <node pkg="iros_image_attack_tello" type="node_image_attack_trainer.py" name="image_attack_train_node" output="screen">
+    </node>
+    <node pkg="iros_image_attack_tello" type="node_image_attacker.py" name="image_attack_node" output="screen">
+    </node>
+    <node pkg="iros_image_attack_tello" type="node_highlevel_decision_maker.py" name="high_level_decision_maker" output="screen">
+    </node>
+    <node pkg="iros_image_attack_tello" type="node_highlevel_decision_trainer.py" name="high_level_decision_trainer" output="screen">
+    </node>
+    <node pkg="iros_image_attack_tello" type="node_yolo.py" name="yolo_node" output="screen">
+    </node>
+</launch>
