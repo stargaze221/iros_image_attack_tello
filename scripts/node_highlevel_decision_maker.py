@@ -5,7 +5,7 @@
 import rospy, roslaunch
 from std_msgs.msg import Float32MultiArray        # See https://gist.github.com/jarvisschultz/7a886ed2714fac9f5226
 from std_msgs.msg import MultiArrayDimension      # See http://docs.ros.org/api/std_msgs/html/msg/MultiArrayLayout.html
-from std_msgs.msg import Bool
+from std_msgs.msg import Bool, Float32
 from geometry_msgs.msg import Twist
 from sensor_msgs.msg import Image
 import numpy as np
@@ -15,6 +15,18 @@ import torch, cv2
 from setting_params import SETTING, FREQ_HIGH_LEVEL, DEVICE
 from agents.dynamic_auto_encoder import DynamicAutoEncoderAgent
 from agents.rl_agent import DDPGAgent
+
+
+if SETTING['if_use_CondSmpler']:
+    from agents.conditional_sampler import ConditionalSampler as BinaryDecisionMaker
+    print('Conditional Sampler Initiated!')
+elif SETTING['if_use_TS']:
+    from agents.thompson_sampler import ThompsonSampler as BinaryDecisionMaker
+    print('Thompson Sampler Initiated!')
+else:
+    print('Unknown decision maker!')
+    from agents.thompson_sampler import ThompsonSampler as BinaryDecisionMaker
+
 
 from torch.utils.tensorboard import SummaryWriter
 
@@ -37,6 +49,13 @@ LOSS_MON_HIGHLEVEL_TRAIN_RECEIVED = None
 def fnc_loss2_callback(msg):
     global LOSS_MON_HIGHLEVEL_TRAIN_RECEIVED
     LOSS_MON_HIGHLEVEL_TRAIN_RECEIVED = msg
+
+#<----------- TS -------------
+LOSS_IMAGE_ATTACK_LOSS_RECEIVED = None
+def fnc_loss3_callback(msg):
+    global LOSS_IMAGE_ATTACK_LOSS_RECEIVED
+    LOSS_IMAGE_ATTACK_LOSS_RECEIVED = msg
+#<----------- TS -------------
 
 
 def reward_function(state_obs, t_steps):
@@ -73,9 +92,17 @@ if __name__ == '__main__':
     sub_loss_image_train = rospy.Subscriber('/image_attack_train_node/loss_monitor', Float32MultiArray, fnc_loss1_callback)
     sub_loss_highlevel_train = rospy.Subscriber('/decision_trainer_node/loss_monitor', Float32MultiArray, fnc_loss2_callback)
 
+    #<----------- TS -------------
+    sub_loss_image_attack = rospy.Subscriber('/attack_generator_node/attack_loss', Float32, fnc_loss3_callback)
+    #<----------- TS -------------
+
     # publishers init.
     pub_transition = rospy.Publisher('/decision_maker_node/state_est_transition', Float32MultiArray, queue_size=10) # prev_state_est, action, reward, next_state_est
     pub_target = rospy.Publisher('/decision_maker_node/target', Twist, queue_size=10) # prev_state_est, action, reward, next_state_est
+
+    #<----------- TS -------------
+    pub_attack_lever = rospy.Publisher('/decision_maker_node/attack_lever', Float32, queue_size=1)
+    #<----------- TS -------------
 
     # Running rate
     rate=rospy.Rate(FREQ_HIGH_LEVEL)
@@ -87,10 +114,17 @@ if __name__ == '__main__':
     msg_mat_transition.layout.dim[0].label = "height"
     msg_mat_transition.layout.dim[1].label = "width"
 
+    #<----------- TS -------------
+    msg_attack_lever = Float32()
+    #<----------- TS -------------
+
     # Decision agents init
     SETTING['name'] = rospy.get_param('name')
     state_estimator = DynamicAutoEncoderAgent(SETTING, train=False)
     rl_agent = DDPGAgent(SETTING)
+    #<----------- TS -------------
+    conditional_sampler = BinaryDecisionMaker(SETTING)
+    #<----------- TS -------------
 
     # Log variables and writier
     writer = SummaryWriter()
@@ -122,11 +156,15 @@ if __name__ == '__main__':
     sum_loss_sys_id = 0
     sum_loss_actor = 0
     sum_loss_critic = 0
+    sum_loss_TS_1 = 0
+    sum_loss_TS_2 = 0
 
     # episode-rewards
     t_steps = 0
     sum_reward = 0
     sum_n_collision = 0
+    sum_attack_lever = 0
+    sum_TS_image_loss = 0
     n_episode = 0
 
     # terminal condition
@@ -149,14 +187,34 @@ if __name__ == '__main__':
                 if error_count > 3:
                     print('In high_level_decision_maker, model loading failed!')
 
-        if IMAGE_RECEIVED is not None and STATE_OBS_RECEIVED is not None:
-            print('HERE, TAERGET????')
+        if IMAGE_RECEIVED is not None and STATE_OBS_RECEIVED is not None: 
             with torch.no_grad(): 
                 ### Update the state estimate ###
                 np_im = np.frombuffer(IMAGE_RECEIVED.data, dtype=np.uint8).reshape(IMAGE_RECEIVED.height, IMAGE_RECEIVED.width, -1)
                 np_im = np.array(np_im)
                 np_im = cv2.resize(np_im, SETTING['encoder_image_size'], interpolation = cv2.INTER_AREA)
                 np_state_estimate = state_estimator.step(np_im, prev_np_action).squeeze()
+
+                #print('np_state_estimate in decision maker', np_state_estimate)
+
+                # if LOSS_IMAGE_ATTACK_LOSS_RECEIVED is not None:    
+                #     #<----------- TS -------------
+                #     image_attack_loss = LOSS_IMAGE_ATTACK_LOSS_RECEIVED.data
+                    
+
+                #     # if n_episode < 2:
+                #     #     msg_attack_lever.data = np.random.choice(2)
+                #     # else:
+                #     #     msg_attack_lever.data = thompson_sampler.sample_lever_choice(prev_np_state_estimate, prev_np_action, image_attack_loss)
+
+                #     msg_attack_lever.data = thompson_sampler.sample_lever_choice(prev_np_state_estimate, prev_np_action, image_attack_loss)
+                #     #print('prev_np_state_estimate for msg_attack_lever.data', prev_np_state_estimate)
+
+
+
+                #     #msg_attack_lever.data = 1
+                #     #<----------- TS -------------
+
                 ### Get action first ###
                 prev_torch_state_estimate = torch.FloatTensor(prev_np_state_estimate).to(DEVICE)
                 action = rl_agent.get_exploration_action(prev_torch_state_estimate).squeeze()
@@ -166,7 +224,10 @@ if __name__ == '__main__':
             taget_msg.angular.x = action[3]
             ### Publish targets (or action) ###
             pub_target.publish(taget_msg)
-            
+            # #<----------- TS -------------
+            # pub_attack_lever.publish(msg_attack_lever)
+            # #<----------- TS -------------
+
 
             ### Calculate the reward ###
             height = STATE_OBS_RECEIVED.layout.dim[0].size
@@ -194,12 +255,16 @@ if __name__ == '__main__':
                 print(n_episode, 'th episode is Done with reward:', reward)
                 print('with total time steps at', t_steps, '!')
                 avg_reward = sum_reward/t_steps
+                avg_lever = sum_attack_lever/t_steps
+                avg_TS_image_loss = sum_TS_image_loss/t_steps
                 terminal_reward = reward
                 writer.add_scalar('RL/avg_reward', avg_reward, n_episode)
                 writer.add_scalar('RL/terminal_reward', terminal_reward, n_episode)
                 writer.add_scalar('RL/sum_n_collision', sum_n_collision, n_episode)
                 writer.add_scalar('RL/t_steps', t_steps, n_episode)
                 writer.add_scalar('RL/OU_theta', rl_agent.noise.theta, n_episode)
+                writer.add_scalar('TS/avg_n_lever', avg_lever, n_episode)
+                writer.add_scalar('TS/avg_TS_image_loss', avg_TS_image_loss, n_episode)
 
                 ### Add terminal states ###
                 body_angle = np_state_obs_received[0]
@@ -224,10 +289,13 @@ if __name__ == '__main__':
 
                 t_steps = 0
                 sum_reward = 0
+                sum_attack_lever = 0
+                sum_TS_image_loss = 0
 
             elif done < 0.5 and onset < 0.5: # Condition 3: going & !oneset
                 done = 0
                 sum_reward += reward
+                sum_attack_lever += msg_attack_lever.data
                 t_steps += 1
 
 
@@ -257,6 +325,28 @@ if __name__ == '__main__':
                 prev_np_action = action
 
 
+                if LOSS_IMAGE_ATTACK_LOSS_RECEIVED is not None:    
+                    #<----------- TS -------------
+                    image_attack_loss = LOSS_IMAGE_ATTACK_LOSS_RECEIVED.data
+                    sum_TS_image_loss += image_attack_loss
+                    
+
+                    # if n_episode < 2:
+                    #     msg_attack_lever.data = np.random.choice(2)
+                    # else:
+                    #     msg_attack_lever.data = thompson_sampler.sample_lever_choice(prev_np_state_estimate, prev_np_action, image_attack_loss)
+
+                    msg_attack_lever.data = conditional_sampler.sample_lever_choice(prev_np_state_estimate, prev_np_action)
+                    #print('prev_np_state_estimate for msg_attack_lever.data', prev_np_state_estimate)
+
+                    pub_attack_lever.publish(msg_attack_lever)
+
+
+
+                    #msg_attack_lever.data = 1
+                    #<----------- TS -------------
+
+
             elif done > 0.5 and not (rospy.get_param('done_ack')): # Condition 4: Done & !ack
                 done = 1
                 print('waiting to publish!')
@@ -280,10 +370,13 @@ if __name__ == '__main__':
             height = LOSS_MON_HIGHLEVEL_TRAIN_RECEIVED.layout.dim[0].size
             width = LOSS_MON_HIGHLEVEL_TRAIN_RECEIVED.layout.dim[1].size
             np_loss_highlevel_train = np.array(LOSS_MON_HIGHLEVEL_TRAIN_RECEIVED.data).reshape((height, width))
-            loss_sys_id, loss_actor, loss_critic = (np_loss_highlevel_train[0][0], np_loss_highlevel_train[0][1], np_loss_highlevel_train[0][2])
+            loss_sys_id, loss_actor, loss_critic, loss_TS_1, loss_TS_2 = (np_loss_highlevel_train[0][0], np_loss_highlevel_train[0][1], np_loss_highlevel_train[0][2], np_loss_highlevel_train[0][3], np_loss_highlevel_train[0][4])
             sum_loss_sys_id += loss_sys_id
             sum_loss_actor += loss_actor
             sum_loss_critic += loss_critic
+            sum_loss_TS_1 += loss_TS_1
+            sum_loss_TS_2 += loss_TS_2
+
 
         if logging_count == 100:
 
@@ -291,6 +384,8 @@ if __name__ == '__main__':
             writer.add_scalar('train/loss_sys_id', sum_loss_sys_id/logging_count, iteration)
             writer.add_scalar('train/loss_critic', sum_loss_critic/logging_count, iteration)
             writer.add_scalar('train/loss_actor', sum_loss_actor/logging_count, iteration)
+            writer.add_scalar('train/loss_TS_1', sum_loss_TS_1/logging_count, iteration)
+            writer.add_scalar('train/loss_TS_2', sum_loss_TS_2/logging_count, iteration)
             writer.add_scalar('train/episode', n_episode, iteration)
 
             logging_count = 0
@@ -298,6 +393,8 @@ if __name__ == '__main__':
             sum_loss_sys_id = 0
             sum_loss_actor = 0
             sum_loss_critic = 0
+            sum_loss_TS_1 = 0
+            sum_loss_TS_2 = 0
             
         rate.sleep()
 

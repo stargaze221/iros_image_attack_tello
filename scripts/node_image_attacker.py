@@ -33,11 +33,18 @@ if __name__ == '__main__':
     print('Image_attack_node is initialized at', os.getcwd())
 
     # subscriber init.
-    sub_image = rospy.Subscriber('/tello_node/camera_frame', Image, fnc_img_callback)
+    sub_image = rospy.Subscriber('/airsim_node/camera_frame', Image, fnc_img_callback)
     sub_target = rospy.Subscriber('/decision_maker_node/target', Twist, fnc_target_callback)
 
     # publishers init.
     pub_attacked_image = rospy.Publisher('/attack_generator_node/attacked_image', Image, queue_size=10)
+    #<----------- TS -------------
+    pub_attack_loss = rospy.Publisher('/attack_generator_node/attack_loss', Float32, queue_size=10)
+    #<----------- TS -------------
+
+    #<----------- TS -------------
+    msg_attack_loss = Float32()
+    #<----------- TS -------------
 
     # Running rate
     rate=rospy.Rate(FREQ_MID_LEVEL)
@@ -78,11 +85,18 @@ if __name__ == '__main__':
                 act = np.array([TARGET_RECEIVED.linear.x, TARGET_RECEIVED.linear.y, TARGET_RECEIVED.linear.z, TARGET_RECEIVED.angular.x])
                 # Get attacked image
                 attacked_obs = agent.generate_attack(np_im, act)
+                #<----------- TS -------------
+                msg_attack_loss.data = agent.calculate_attack_loss_no_grad(np_im, act)
+                #<----------- TS -------------
+
             attacked_obs = (attacked_obs*255).astype('uint8')
             attacked_frame = mybridge.cv2_to_imgmsg(attacked_obs)
 
             # Publish messages
             pub_attacked_image.publish(attacked_frame)
+            #<----------- TS -------------
+            pub_attack_loss.publish(msg_attack_loss)
+            #<----------- TS -------------
 
         try:
             experiment_done_done = rospy.get_param('experiment_done')

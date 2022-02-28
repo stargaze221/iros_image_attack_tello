@@ -13,6 +13,16 @@ from setting_params import SETTING, FREQ_HIGH_LEVEL, DEVICE
 from agents.dynamic_auto_encoder import DynamicAutoEncoderAgent
 from agents.rl_agent import DDPGAgent
 
+if SETTING['if_use_CondSmpler']:
+    from agents.conditional_sampler import ConditionalSampler as BinaryDecisionMaker
+    print('Conditional Sampler Initiated!')
+elif SETTING['if_use_TS']:
+    from agents.thompson_sampler import ThompsonSampler as BinaryDecisionMaker
+    print('Thompson Sampler Initiated!')
+else:
+    print('Unknown decision maker!')
+    from agents.thompson_sampler import ThompsonSampler as BinaryDecisionMaker
+
 
 from memory import SingleTrajectoryBuffer, TransitionBuffer 
 
@@ -26,6 +36,17 @@ def fnc_img_callback1(msg):
     global TRANSITION_EST_RECEIVED
     TRANSITION_EST_RECEIVED = msg
 
+#<----------- TS -------------
+ATTACK_LEVER_RECEIVED = None
+def fnc_img_callback2(msg):
+    global ATTACK_LEVER_RECEIVED
+    ATTACK_LEVER_RECEIVED = msg
+
+LOSS_IMAGE_ATTACK_LOSS_RECEIVED = None
+def fnc_loss3_callback(msg):
+    global LOSS_IMAGE_ATTACK_LOSS_RECEIVED
+    LOSS_IMAGE_ATTACK_LOSS_RECEIVED = msg
+#<----------- TS -------------
 
 
 if __name__ == '__main__':
@@ -34,8 +55,16 @@ if __name__ == '__main__':
     rospy.init_node('high_level_decision_trainer')
 
     # subscriber init.
-    sub_image = rospy.Subscriber('/tello_node/camera_frame', Image, fnc_img_callback)
-    sub_state_observation = rospy.Subscriber('/decision_maker_node/state_est_transition', Float32MultiArray, fnc_img_callback1)
+    sub_image = rospy.Subscriber('/airsim_node/camera_frame', Image, fnc_img_callback)
+    sub_state_transition_observation = rospy.Subscriber('/decision_maker_node/state_est_transition', Float32MultiArray, fnc_img_callback1)
+    
+    #<----------- TS -------------
+    sub_attack_lever = rospy.Subscriber('/decision_maker_node/attack_lever', Float32, fnc_img_callback2)
+    sub_loss_image_attack = rospy.Subscriber('/attack_generator_node/attack_loss', Float32, fnc_loss3_callback)
+    # sub_attack_loss_transition = rospy.Subscriber('/memory_node/attack_loss', Float32MultiArray, fnc_transition_attack_loss_callback)
+    # sub_attack_lever_transition = rospy.Subscriber('/memory_node/attack_lever', Float32MultiArray, fnc_transition_attack_lever_callback)
+    #<----------- TS -------------
+
 
     # publishers init.
     pub_loss_monitor = rospy.Publisher('/decision_trainer_node/loss_monitor', Float32MultiArray, queue_size=3)   # publisher1 initialization.
@@ -48,9 +77,17 @@ if __name__ == '__main__':
     state_estimator = DynamicAutoEncoderAgent(SETTING, train=True)
     rl_agent = DDPGAgent(SETTING)
 
+    #<----------- TS -------------
+    conditional_sampler = BinaryDecisionMaker(SETTING)
+    #<----------- TS -------------
+
     # Memory init
     single_trajectory_memory = SingleTrajectoryBuffer(SETTING['N_SingleTrajectoryBuffer'])
     transition_memory = TransitionBuffer(SETTING['N_TransitionBuffer'])
+    #<----------- TS -------------
+    conditional_smpl_memory = TransitionBuffer(SETTING['N_TransitionBuffer'])
+    #<----------- TS -------------
+    
 
     # msg init. the msg is to send out numpy array.
     msg_mat = Float32MultiArray()
@@ -65,7 +102,7 @@ if __name__ == '__main__':
     n_iteration = 0
     while not rospy.is_shutdown():
 
-        if IMAGE_RECEIVED is not None and TRANSITION_EST_RECEIVED is not None:
+        if IMAGE_RECEIVED is not None and TRANSITION_EST_RECEIVED is not None and LOSS_IMAGE_ATTACK_LOSS_RECEIVED is not None and ATTACK_LEVER_RECEIVED:
             n_iteration += 1
 
             ### Add samples to the buffers ###
@@ -86,9 +123,19 @@ if __name__ == '__main__':
             done = np_transition[1][-2]
             np_state_estimate = np_transition[2]
 
+
+            #print('prev_np_state_estimate in trainer', np_state_estimate)
+
             # add data into memory
             single_trajectory_memory.add(np_im, action, prev_np_state_estimate)
             transition_memory.add(prev_np_state_estimate, action, reward, np_state_estimate, done)
+
+            #<----------- TS -------------
+            image_attack_loss = LOSS_IMAGE_ATTACK_LOSS_RECEIVED.data
+            attack_lever = ATTACK_LEVER_RECEIVED.data
+            conditional_smpl_memory.add(np_state_estimate, action, reward, image_attack_loss, attack_lever)
+            #print('thompson_smpl_memory.add', np_state_estimate)
+            #<----------- TS -------------
 
             ####################################################
             ## CAL THE LOSS FUNCTION & A STEP OF GRAD DESCENT ##
@@ -103,6 +150,18 @@ if __name__ == '__main__':
                 loss_sys_id = state_estimator.update(batch_obs_img_stream, batch_state_est_stream, batch_tgt_stream)
                 loss_actor, loss_critic = rl_agent.update(s_arr, a_arr, r_arr, s1_arr, done_arr)
 
+                #<----------- TS -------------
+                ######################################
+                ### Thompson Sampling Model Update ###
+                ######################################
+
+
+                s_arr, a_arr, r_arr, img_attack_loss_arr, attack_lever_arr = conditional_smpl_memory.sample(SETTING['N_MINIBATCH_DDPG']*4)
+                #print('thompson_smpl_memory.sample', s_arr)
+                loss_condtionalSmpl1, loss_condtionalSmpl2 = conditional_sampler.update(s_arr, a_arr, r_arr, img_attack_loss_arr, attack_lever_arr)
+
+                #print('loss_thompson', loss_thompson)
+
                 # if n_iteration > 2000:
                 #     loss_actor, loss_critic = rl_agent.update(s_arr, a_arr, r_arr, s1_arr, done_arr)
                 # else:
@@ -110,7 +169,7 @@ if __name__ == '__main__':
                 #     loss_critic = 0
 
                 # pack up loss values
-                loss_monitor_np = np.array([[loss_sys_id, loss_actor, loss_critic]])
+                loss_monitor_np = np.array([[loss_sys_id, loss_actor, loss_critic, loss_condtionalSmpl1, loss_condtionalSmpl2]])
                 msg_mat.layout.dim[0].size = loss_monitor_np.shape[0]
                 msg_mat.layout.dim[1].size = loss_monitor_np.shape[1]
                 msg_mat.layout.dim[0].stride = loss_monitor_np.shape[0]*loss_monitor_np.shape[1]
@@ -123,6 +182,7 @@ if __name__ == '__main__':
             try:
                 state_estimator.save_the_model()
                 rl_agent.save_the_model()
+                conditional_sampler.save_the_model()
             except:
                 print('in high_level_decision_trainer, model saving failed!')
 
@@ -138,6 +198,3 @@ if __name__ == '__main__':
             
             
         rate.sleep()
-
-        
-

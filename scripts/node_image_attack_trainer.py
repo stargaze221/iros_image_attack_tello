@@ -33,8 +33,8 @@ if __name__=='__main__':
     rospy.init_node('image_attack_train_node')   # rosnode node initialization
     print('Image_attack_train_node is initialized at', os.getcwd())
 
-    # subscriber init.            
-    sub_image = rospy.Subscriber('/tello_node/camera_frame', Image, fnc_img_callback)   # subscriber init.
+    # subscriber init.
+    sub_image = rospy.Subscriber('/airsim_node/camera_frame', Image, fnc_img_callback)   # subscriber init.
     sub_target = rospy.Subscriber('/decision_maker_node/target', Twist, fnc_target_callback)
 
     # publishers init.
@@ -61,7 +61,6 @@ if __name__=='__main__':
     while not rospy.is_shutdown():
 
         if IMAGE_RECEIVED is not None and TARGET_RECEIVED is not None:
-            print('HERE???????????')
             n_iteration += 1
 
             # Add data into memory
