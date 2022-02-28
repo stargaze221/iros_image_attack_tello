@@ -1,5 +1,5 @@
 <launch>
-    <param name="name" value="yoon_333"/>
+    <param name="name" value="yoon_777"/>
     <node pkg="iros_image_attack_tello" type="node_tello.py" name="tello_node" output="screen">
     </node>
     <node pkg="iros_image_attack_tello" type="node_yolo.py" name="yolo_node" output="screen">

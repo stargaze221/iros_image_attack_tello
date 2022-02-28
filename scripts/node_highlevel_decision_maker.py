@@ -102,6 +102,7 @@ if __name__ == '__main__':
 
     #<----------- TS -------------
     pub_attack_lever = rospy.Publisher('/decision_maker_node/attack_lever', Float32, queue_size=1)
+    pub_mu0_std0_mu1_std1 = rospy.Publisher('/decision_maker_node/mu0_std0_mu1_std1', Twist, queue_size=1)
     #<----------- TS -------------
 
     # Running rate
@@ -146,6 +147,8 @@ if __name__ == '__main__':
     # Target message initialization
     taget_msg = Twist()
 
+    mu0_std0_mu1_std1 = Twist()
+
     # Logging monitoring variables
 
     # optimization loss-iteration
@@ -181,6 +184,7 @@ if __name__ == '__main__':
             try:
                 state_estimator.load_the_model()
                 rl_agent.load_the_model()
+                conditional_sampler.load_the_model()
                 error_count = 0
             except:
                 error_count +=1
@@ -336,10 +340,16 @@ if __name__ == '__main__':
                     # else:
                     #     msg_attack_lever.data = thompson_sampler.sample_lever_choice(prev_np_state_estimate, prev_np_action, image_attack_loss)
 
-                    msg_attack_lever.data = conditional_sampler.sample_lever_choice(prev_np_state_estimate, prev_np_action)
+                    lever_value, mu0, std0, mu1, std1 = conditional_sampler.sample_lever_choice(prev_np_state_estimate, prev_np_action)
+                    msg_attack_lever.data = lever_value
+                    mu0_std0_mu1_std1.linear.x = mu0
+                    mu0_std0_mu1_std1.linear.y = std0
+                    mu0_std0_mu1_std1.angular.x = mu1
+                    mu0_std0_mu1_std1.angular.y = std1
                     #print('prev_np_state_estimate for msg_attack_lever.data', prev_np_state_estimate)
 
                     pub_attack_lever.publish(msg_attack_lever)
+                    pub_mu0_std0_mu1_std1.publish(mu0_std0_mu1_std1)
 
 
 

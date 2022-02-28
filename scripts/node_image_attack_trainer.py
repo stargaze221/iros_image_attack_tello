@@ -34,7 +34,7 @@ if __name__=='__main__':
     print('Image_attack_train_node is initialized at', os.getcwd())
 
     # subscriber init.
-    sub_image = rospy.Subscriber('/airsim_node/camera_frame', Image, fnc_img_callback)   # subscriber init.
+    sub_image = rospy.Subscriber('/tello_node/camera_frame', Image, fnc_img_callback)   # subscriber init.
     sub_target = rospy.Subscriber('/decision_maker_node/target', Twist, fnc_target_callback)
 
     # publishers init.
@@ -85,6 +85,8 @@ if __name__=='__main__':
             msg_mat.layout.data_offset = 0
             msg_mat.data = loss_monitor_np.flatten().tolist()
             pub_loss_monitor.publish(msg_mat)
+
+            #print(n_iteration)
 
             if n_iteration % (FREQ_HIGH_LEVEL+1)==0:
                 try:

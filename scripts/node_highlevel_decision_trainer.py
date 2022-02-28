@@ -5,6 +5,7 @@
 import rospy
 from std_msgs.msg import Float32MultiArray        # See https://gist.github.com/jarvisschultz/7a886ed2714fac9f5226
 from std_msgs.msg import MultiArrayDimension      # See http://docs.ros.org/api/std_msgs/html/msg/MultiArrayLayout.html
+from std_msgs.msg import Float32
 from sensor_msgs.msg import Image
 import numpy as np
 import cv2
@@ -55,7 +56,7 @@ if __name__ == '__main__':
     rospy.init_node('high_level_decision_trainer')
 
     # subscriber init.
-    sub_image = rospy.Subscriber('/airsim_node/camera_frame', Image, fnc_img_callback)
+    sub_image = rospy.Subscriber('/tello_node/camera_frame', Image, fnc_img_callback)
     sub_state_transition_observation = rospy.Subscriber('/decision_maker_node/state_est_transition', Float32MultiArray, fnc_img_callback1)
     
     #<----------- TS -------------

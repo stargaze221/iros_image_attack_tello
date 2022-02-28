@@ -33,7 +33,7 @@ if __name__ == '__main__':
     print('Image_attack_node is initialized at', os.getcwd())
 
     # subscriber init.
-    sub_image = rospy.Subscriber('/airsim_node/camera_frame', Image, fnc_img_callback)
+    sub_image = rospy.Subscriber('/tello_node/camera_frame', Image, fnc_img_callback)
     sub_target = rospy.Subscriber('/decision_maker_node/target', Twist, fnc_target_callback)
 
     # publishers init.

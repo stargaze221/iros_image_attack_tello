@@ -3,7 +3,7 @@ import rospy
 import torch
 import numpy as np
 import PIL
-import os, cv2
+import os
 
 from sensor_msgs.msg import Image
 from geometry_msgs.msg import Twist
@@ -21,7 +21,7 @@ DEVICE = torch.device("cpu")
 YOLO_MODEL = YoloWrapper(SETTING['yolov5_param_path'], DEVICE)
 YOLO_MODEL.model.eval()
 YOLO_MODEL.model.to(DEVICE)
-FREQ_NODE = 10 #FREQ_MID_LEVEL
+FREQ_NODE = FREQ_MID_LEVEL
 
 ### ROS Subscriber Callback ###
 IMAGE_RECEIVED = None
@@ -50,20 +50,30 @@ def fnc_target_callback7(msg):
     global KF_BOX_RECEIVED
     KF_BOX_RECEIVED = msg
 
+#<----------- TS -------------
+ATTACK_LEVER_RECEIVED = None
+def fnc_target_callback8(msg):
+    global ATTACK_LEVER_RECEIVED
+    ATTACK_LEVER_RECEIVED = msg
+#<----------- TS -------------
 
 
 if __name__=='__main__':
 
     # rosnode node initialization
-    rospy.init_node('yolo_node')   # rosnode node initialization
+    rospy.init_node('perception_node')   # rosnode node initialization
     print("Perception_node is initialized at", os.getcwd())
 
     # subscriber init.
     sub_image = rospy.Subscriber('/tello_node/camera_frame', Image, fnc_img_callback)   # subscriber init.
-    sub_bool_image_attack = rospy.Subscriber('/key_teleop/attack_on_off', Bool, fnc_callback5)
+    sub_bool_image_attack = rospy.Subscriber('/key_teleop/image_attack_bool', Bool, fnc_callback5)
     sub_attacked_image = rospy.Subscriber('/attack_generator_node/attacked_image', Image, fnc_callback6)   # subscriber init.
     sub_target = rospy.Subscriber('/decision_maker_node/target', Twist, fnc_target_callback)
     sub_kf_box = rospy.Subscriber('/controller_node/kf_box', Twist, fnc_target_callback7)
+    
+    #<----------- TS -------------
+    sub_img_attack_lever = rospy.Subscriber('/decision_maker_node/attack_lever', Float32, fnc_target_callback8)
+    #<----------- TS -------------
 
     # publishers init.
     pub_yolo_prediction = rospy.Publisher('/yolo_node/yolo_predictions', Float32MultiArray, queue_size=10)   # publisher1 initialization.
@@ -90,29 +100,34 @@ if __name__=='__main__':
         t_step += 1
 
         if IMAGE_RECEIVED is not None:
-            if ATTACKED_IMAGE is not None and IMAGE_ATTACK_ON_CMD_RECEIVED is not None and IMAGE_ATTACK_ON_CMD_RECEIVED.data:
-                print('ATTACK!!!!!!')
-                np_im = np.frombuffer(ATTACKED_IMAGE.data, dtype=np.uint8).reshape(ATTACKED_IMAGE.height, ATTACKED_IMAGE.width, -1)
-            else:
-                print('NOOOO ATTACK!!!!!!')
+            #<----------- TS -------------
+            if not (ATTACKED_IMAGE is not None and IMAGE_ATTACK_ON_CMD_RECEIVED is not None and IMAGE_ATTACK_ON_CMD_RECEIVED.data and ATTACK_LEVER_RECEIVED is not None and ATTACK_LEVER_RECEIVED.data > 0.5):
+                #print('attack off')
                 np_im = np.frombuffer(IMAGE_RECEIVED.data, dtype=np.uint8).reshape(IMAGE_RECEIVED.height, IMAGE_RECEIVED.width, -1)
+                
+            else:
+                #print('attack on')
+                np_im = np.frombuffer(ATTACKED_IMAGE.data, dtype=np.uint8).reshape(ATTACKED_IMAGE.height, ATTACKED_IMAGE.width, -1)
+                
+            #<----------- TS -------------
 
             np_im = np.array(np_im)
-            #np_im = cv2.resize(np_im, (448,448))
 
             #print('KF_BOX_RECEIVED', KF_BOX_RECEIVED)
             with torch.no_grad():
                 x_image = torch.FloatTensor(np_im).to(DEVICE).permute(2, 0, 1).unsqueeze(0)/255
-                if TARGET_RECEIVED is not None and KF_BOX_RECEIVED is None:
+                if TARGET_RECEIVED is not None and KF_BOX_RECEIVED is None and ATTACK_LEVER_RECEIVED is not None and ATTACK_LEVER_RECEIVED.data > 0.5:   #<----------- TS -------------
                     action = (TARGET_RECEIVED.linear.x, TARGET_RECEIVED.linear.y, TARGET_RECEIVED.linear.z, TARGET_RECEIVED.angular.x)
                     cv2_images_uint8, prediction_np = YOLO_MODEL.draw_image_w_prediction_and_target(x_image.detach(), action)
-                elif TARGET_RECEIVED is not None and KF_BOX_RECEIVED is not None:
+                elif TARGET_RECEIVED is not None and KF_BOX_RECEIVED is not None and ATTACK_LEVER_RECEIVED is not None and ATTACK_LEVER_RECEIVED.data > 0.5: #<----------- TS -------------
                     action = (TARGET_RECEIVED.linear.x, TARGET_RECEIVED.linear.y, TARGET_RECEIVED.linear.z, TARGET_RECEIVED.angular.x)
                     kf_box = (KF_BOX_RECEIVED.linear.x, KF_BOX_RECEIVED.linear.y, KF_BOX_RECEIVED.linear.z, KF_BOX_RECEIVED.angular.x)
                     cv2_images_uint8, prediction_np = YOLO_MODEL.draw_image_w_prediction_and_target_and_kf_box(x_image.detach(), action, kf_box)
-                elif TARGET_RECEIVED is None and KF_BOX_RECEIVED is not None:
+                elif TARGET_RECEIVED is None and KF_BOX_RECEIVED is not None and ATTACK_LEVER_RECEIVED is not None and ATTACK_LEVER_RECEIVED.data > 0.5: #<----------- TS -------------
                     kf_box = (KF_BOX_RECEIVED.linear.x, KF_BOX_RECEIVED.linear.y, KF_BOX_RECEIVED.linear.z, KF_BOX_RECEIVED.angular.x)
                     cv2_images_uint8, prediction_np = YOLO_MODEL.draw_image_w_prediction_and_kf_box(x_image.detach(), kf_box)
+                elif ATTACK_LEVER_RECEIVED is not None and ATTACK_LEVER_RECEIVED.data < 0.5: #<----------- TS -------------
+                    cv2_images_uint8, prediction_np = YOLO_MODEL.draw_image_w_predictions(x_image.detach())
                 else:
                     cv2_images_uint8, prediction_np = YOLO_MODEL.draw_image_w_predictions(x_image.detach())
             

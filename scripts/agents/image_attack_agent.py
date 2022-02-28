@@ -47,9 +47,9 @@ class ImageAttackTraniner:
         if not os.path.exists('save/'+self.env_name+'/save/attack_network/'):
             os.makedirs('save/'+self.env_name+'/save/attack_network/')
         f_name = self.name + '_attack_network_param_' +  '_model.pth'
-        #print('save/'+self.env_name+'/save/attack_network/'+f_name)
+        print('save/'+self.env_name+'/save/attack_network/'+f_name)
         torch.save(self.attack_network.state_dict(), 'save/'+self.env_name+'/save/attack_network/'+f_name)
-        #print('ImageAttacker Model Saved')
+        print('ImageAttacker Model Saved')
 
     def update(self, obs_arr, tgt_arr, train=True):
         self.yolo_model.model.eval()
@@ -216,9 +216,9 @@ class ImageAttacker():
     def load_the_model(self):
         #print(os.getcwd())
         f_name = self.name + '_attack_network_param_' + '_model.pth'
-        #print('save/'+self.env_name+'/save/attack_network/'+f_name)
+        print('save/'+self.env_name+'/save/attack_network/'+f_name)
         self.attack_network.load_state_dict(torch.load('save/'+self.env_name+'/save/attack_network/'+f_name))
-        #print('ImageAttacker Model Loaded')
+        print('ImageAttacker Model Loaded')
 
     def generate_attack(self, obs, tgt_box):
         self.attack_network.eval()

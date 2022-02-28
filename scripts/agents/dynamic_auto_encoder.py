@@ -147,11 +147,14 @@ class DynamicAutoEncoderAgent:
         if not os.path.exists('save/'+self.env_name+'/save/dynautoenc/'):
             os.makedirs('save/'+self.env_name+'/save/dynautoenc/')
         f_name = self.name + '_dynautoenc_network_param_' + '_model.pth'
+        #print('saving', f_name)
         torch.save(self.nn_model.state_dict(), 'save/'+self.env_name+'/save/dynautoenc/'+f_name)
         #print('DynamicAutoEncoderAgent Model Saved')
 
     def load_the_model(self):
         f_name = self.name + '_dynautoenc_network_param_' +  '_model.pth'
+        #print('loading', f_name)
         self.nn_model.load_state_dict(torch.load('save/'+self.env_name+'/save/dynautoenc/'+f_name))
         #print('DynamicAutoEncoderAgent Model Loaded')
+
 

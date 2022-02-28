@@ -270,7 +270,7 @@ class ConditionalSampler:
         else:
             lever_value = 1
 
-        return lever_value
+        return lever_value, mu0, std0, mu1, std1
 
     def save_the_model(self):
 
