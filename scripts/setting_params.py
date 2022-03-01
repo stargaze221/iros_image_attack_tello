@@ -13,7 +13,7 @@ SETTING.update({'env_name': 'env3'})
 SETTING.update({'yolov5_param_path':'yolov5s.pt'})
 
 # Attack pertubation size
-SETTING.update({'alpha': 0.05})
+SETTING.update({'alpha': 0.10})
 
 # Optimization learning rate
 SETTING.update({'lr_img_gen':0.0010, 'lr_thompson':0.0015, 'lr_actor':0.0020, 'lr_critic':0.0025, 'lr_sys_id':0.0030, 'betas':(0.5, 0.9)})
